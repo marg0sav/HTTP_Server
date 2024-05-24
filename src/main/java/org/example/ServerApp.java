@@ -13,6 +13,10 @@ public class ServerApp {
         // Регистрация обработчиков запросов
         requestHandler.registerHandlers(server);
 
+        requestHandler.setServiceAvailable(true); // Установить сервис как доступный/недоступный
+
+        requestHandler.setExternalServiceAvailable(false); // Установить внешний сервис как доступный/недоступный
+
         // Запускаем сервер
         server.start();
     }

@@ -1,5 +1,6 @@
 package org.example;
 
+import java.nio.channels.SocketChannel;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -8,12 +9,14 @@ public class HttpRequest {
     private final String path;
     private final Map<String, String> headers;
     private final String body;
+    private final SocketChannel clientChannel;
 
-    public HttpRequest(String method, String path, Map<String, String> headers, String body) {
+    public HttpRequest(String method, String path, Map<String, String> headers, String body, SocketChannel clientChannel) {
         this.method = method;
         this.path = path;
         this.headers = headers;
         this.body = body;
+        this.clientChannel = clientChannel;
     }
 
     public String getMethod() {
@@ -30,6 +33,10 @@ public class HttpRequest {
 
     public String getBody() {
         return body;
+    }
+
+    public SocketChannel getClientChannel() {
+        return clientChannel;
     }
 
     public Map<String, String> getQueryParams() {

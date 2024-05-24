@@ -74,18 +74,31 @@ public class HttpServerChannel {
         String[] lines = request.split("\r\n");
 
         if (lines.length == 0 || lines[0].isEmpty()) {
-            sendBadRequestResponse(clientChannel);
+            sendResponse(clientChannel, 400, "Bad Request");
             return;
         }
 
         String[] requestLine = lines[0].split(" ");
-        if (requestLine.length < 2) {
-            sendBadRequestResponse(clientChannel);
+        if (requestLine.length < 3) {
+            sendResponse(clientChannel, 400, "Bad Request");
             return;
         }
 
         String method = requestLine[0];
         String path = requestLine[1];
+        String httpVersion = requestLine[2];
+
+        // Проверка на не поддерживаемый метод
+        if (!method.equals("GET") && !method.equals("POST") && !method.equals("PUT") && !method.equals("PATCH") && !method.equals("DELETE")) {
+            sendResponse(clientChannel, 501, "Not Implemented");
+            return;
+        }
+
+        // Проверка версии HTTP
+        if (!httpVersion.equals("HTTP/1.1")) {
+            sendResponse(clientChannel, 505, "HTTP Version not supported");
+            return;
+        }
 
         Map<String, String> headers = new HashMap<>();
         int i = 1;
@@ -102,18 +115,19 @@ public class HttpServerChannel {
             body = lines[i + 1];
         }
 
-        HttpRequest httpRequest = new HttpRequest(method, path, headers, body);
+        HttpRequest httpRequest = new HttpRequest(method, path, headers, body, clientChannel);
         HttpResponse httpResponse = new HttpResponse(clientChannel);
 
         if (handlers.containsKey(method) && handlers.get(method).containsKey(path)) {
             handlers.get(method).get(path).handle(httpRequest, httpResponse);
         } else {
-            httpResponse.send(404, "Not Found");
+            sendResponse(clientChannel, 404, "Not Found");
         }
     }
 
-    private void sendBadRequestResponse(SocketChannel clientChannel) throws IOException {
+
+    private void sendResponse(SocketChannel clientChannel, int statusCode, String message) throws IOException {
         HttpResponse httpResponse = new HttpResponse(clientChannel);
-        httpResponse.send(400, "Bad Request");
+        httpResponse.send(statusCode, message);
     }
 }
