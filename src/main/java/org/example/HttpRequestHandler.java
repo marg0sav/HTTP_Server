@@ -2,12 +2,16 @@ package org.example;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.CompletableFuture;
@@ -321,13 +325,15 @@ public class HttpRequestHandler {
     private void handleContinueRequest(HttpRequest request, HttpResponse response) throws IOException {
         String expectHeader = request.getHeaders().get("Expect");
         if (expectHeader != null && expectHeader.equalsIgnoreCase("100-continue")) {
-            // Возвращаем статус 100 "Continue"
+            // Отправляем статус 100 "Continue"
             response.sendContinue();
+            System.out.println("Sent 100 Continue");
 
             // Чтение тела запроса после отправки 100 "Continue"
             String requestBody = readRequestBody(request.getClientChannel());
+            System.out.println("Request Body: " + requestBody);
 
-            // Здесь можно добавить обработку тела запроса
+            // Обработка тела запроса
             response.send(200, "Received data: " + requestBody);
         } else {
             response.send(417, "Expectation Failed");
@@ -337,15 +343,34 @@ public class HttpRequestHandler {
     private String readRequestBody(SocketChannel clientChannel) throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(1024);
         StringBuilder requestBody = new StringBuilder();
-        int bytesRead;
-        while ((bytesRead = clientChannel.read(buffer)) > 0 || buffer.position() != 0) {
-            buffer.flip();
-            byte[] bytes = new byte[buffer.limit()];
-            buffer.get(bytes);
-            requestBody.append(new String(bytes));
-            buffer.clear();
+        Selector selector = Selector.open();
+        clientChannel.register(selector, SelectionKey.OP_READ);
+
+        boolean reading = true;
+        while (reading) {
+            selector.select(500);  // тайм-аут 500 мс для избежания бесконечного ожидания
+            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iterator = selectedKeys.iterator();
+            while (iterator.hasNext()) {
+                SelectionKey key = iterator.next();
+                iterator.remove();
+                if (key.isReadable()) {
+                    int bytesRead = clientChannel.read(buffer);
+                    if (bytesRead > 0) {
+                        buffer.flip();
+                        byte[] bytes = new byte[buffer.limit()];
+                        buffer.get(bytes);
+                        requestBody.append(new String(bytes));
+                        buffer.clear();
+                    } else if (bytesRead == -1) {
+                        reading = false; // конец потока, выходим из цикла
+                    }
+                }
+            }
+            if (selectedKeys.isEmpty()) {
+                reading = false; // нет больше данных, выходим из цикла
+            }
         }
         return requestBody.toString();
     }
-
 }

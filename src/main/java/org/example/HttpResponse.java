@@ -40,6 +40,7 @@ public class HttpResponse {
         clientChannel.write(buffer);
     }
 
+
     private String getStatusMessage(int statusCode) {
         Map<Integer, String> statusMessages = new HashMap<>();
         statusMessages.put(100, "Continue");
