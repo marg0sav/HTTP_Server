@@ -3,21 +3,25 @@ package org.example;
 import java.io.IOException;
 
 public class ServerApp {
-    public static void main(String[] args) throws IOException {
-        // Создаем экземпляр HTTP сервера
-        HttpServer server = new HttpServer("localhost", 8081);
+    public static void main(String[] args) {
+        try {
+            HttpServer server = new HttpServer("localhost", 8081);
+            HttpRequestHandler handler = new HttpRequestHandler();
+            handler.registerHandlers(server);
 
-        // Создаем экземпляр обработчика запросов
-        HttpRequestHandler requestHandler = new HttpRequestHandler();
+            // Устанавливаем флаг для симуляции длительных операций
+            HttpRequestHandler.setFlagForLongTimeout(false);
 
-        // Регистрация обработчиков запросов
-        requestHandler.registerHandlers(server);
+            // Устанавливаем доступность сервера
+            handler.setServiceAvailable(true);
 
-        requestHandler.setServiceAvailable(true); // Установить сервис как доступный/недоступный
+            // Устанавливаем доступность внешнего сервера (при false, происходит подключение к
+            // несуществующему API)
+            handler.setExternalServiceAvailable(true);
 
-        requestHandler.setExternalServiceAvailable(false); // Установить внешний сервис как доступный/недоступный
-
-        // Запускаем сервер
-        server.start();
+            server.start();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

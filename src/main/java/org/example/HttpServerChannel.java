@@ -13,7 +13,6 @@ public class HttpServerChannel {
     private final ServerSocketChannel serverChannel;
     private final Map<String, Map<String, HttpHandler>> handlers;
 
-
     public HttpServerChannel(String host, int port, Map<String, Map<String, HttpHandler>> handlers) throws IOException {
         this.host = host;
         this.port = port;
@@ -24,7 +23,6 @@ public class HttpServerChannel {
         this.serverChannel.configureBlocking(false);
         this.serverChannel.register(selector, SelectionKey.OP_ACCEPT);
     }
-
 
     public void start() throws IOException {
         System.out.println("Server started on " + host + ":" + port);
@@ -126,7 +124,6 @@ public class HttpServerChannel {
             sendResponse(clientChannel, 404, "Not Found");
         }
     }
-
 
     private void sendResponse(SocketChannel clientChannel, int statusCode, String message) throws IOException {
         HttpResponse httpResponse = new HttpResponse(clientChannel);

@@ -1,104 +1,221 @@
 package org.example;
 
-import java.io.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonElement;
-import com.google.gson.reflect.TypeToken;
-import java.net.HttpURLConnection;
-import java.net.URL;
-
-
+import java.util.*;
+import java.util.concurrent.*;
 
 public class HttpRequestHandler {
     private static final Map<String, JsonObject> dataStore = new ConcurrentHashMap<>();
     private final Gson gson = new Gson();
-    private static final String UPLOAD_DIR = "uploads"; // Директория для сохранения файлов
-    private final boolean delayEnabled = false; // Флаг для добавления задержки
-    private boolean serviceAvailable; // Флаг для проверки доступности сервиса
-    private boolean externalServiceAvailable = true; // Флаг для проверки доступности внешнего ресурса
-
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
+    private static boolean flagForLongTimeout = false;
+    private static boolean flagForServiceAvailable = true;
+    private static boolean flagForExternalServiceAvailable = true;
 
     public HttpRequestHandler() {
-        // Инициализация примеров данных
         JsonObject exampleData = new JsonObject();
         exampleData.addProperty("field1", "value1");
         exampleData.addProperty("field2", "value2");
         dataStore.put("example", exampleData);
+    }
 
-        // Создание директории для загрузок, если она не существует
-        Path uploadPath = Paths.get(UPLOAD_DIR);
-        if (!Files.exists(uploadPath)) {
+    public static void setFlagForLongTimeout(boolean flag) {
+        flagForLongTimeout = flag;
+    }
+
+    public void setServiceAvailable(boolean available) {
+        flagForServiceAvailable = available;
+    }
+
+    public void setExternalServiceAvailable(boolean available) {
+        flagForExternalServiceAvailable = available;
+    }
+
+    public void registerHandlers(HttpServer server) {
+        server.addHandler("GET", "/", this::handleRequestWithTimeout);
+        server.addHandler("GET", "/data", this::handleRequestWithTimeout);
+        server.addHandler("POST", "/submit", this::handleRequestWithTimeout);
+        server.addHandler("PUT", "/update", this::handleRequestWithTimeout);
+        server.addHandler("PATCH", "/modify", this::handleRequestWithTimeout);
+        server.addHandler("DELETE", "/delete", this::handleRequestWithTimeout);
+        server.addHandler("GET", "/external", this::handleRequestWithTimeout);
+        server.addHandler("GET", "/secure/admin", this::handleSecureAdminRequest);
+        server.addHandler("GET", "/secure/user", this::handleSecureUserRequest);
+        server.addHandler("POST", "/register", this::handleRegisterRequest);
+        server.addHandler("POST", "/login", this::handleLoginRequest);
+        server.addHandler("POST", "/continue", this::handleContinueRequest); // Добавить обработчик для проверки статуса 100 "Continue"
+
+    }
+
+    private void handleRequestWithTimeout(HttpRequest request, HttpResponse response) {
+        if (!flagForServiceAvailable) {
             try {
-                Files.createDirectories(uploadPath);
-                System.out.println("Created upload directory: " + UPLOAD_DIR);
+                response.send(503, "Service Unavailable");
             } catch (IOException e) {
                 e.printStackTrace();
+            }
+            return;
+        }
+
+        if (request.getBody().length() > 1024 * 1024) { // Ограничение в 1 МБ
+            try {
+                response.send(413, "Payload Too Large");
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return;
+        }
+
+        Future<?> future = executorService.submit(() -> {
+            try {
+                handleRequest(request, response);
+            } catch (IOException e) {
+                if (!response.isSent()) {
+                    try {
+                        response.send(500, "Internal Server Error");
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            }
+        });
+
+        try {
+            future.get(10, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            if (!response.isSent()) {
+                try {
+                    response.send(504, "Gateway Timeout");
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            future.cancel(true);
+        } catch (Exception e) {
+            if (!response.isSent()) {
+                try {
+                    response.send(500, "Internal Server Error");
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
             }
         }
     }
 
-    public void registerHandlers(HttpServer server) {
-        // Добавляем обработчик для GET запроса на путь "/"
-        server.addHandler("GET", "/", (request, response) -> {
-            response.send(200, "Hello, World!");
-        });
+    private void handleRequest(HttpRequest request, HttpResponse response) throws IOException {
+        switch (request.getMethod()) {
+            case "GET":
+                if ("/".equals(request.getPath())) {
+                    response.send(200, "Hello, World!");
+                } else if ("/data".equals(request.getPath())) {
+                    try {
+                        // Добавить задержку в 5 секунд
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    response.send(200, gson.toJson(dataStore), "application/json");
+                } else if ("/secure/user".equals(request.getPath())) {
+                    handleSecureUserRequest(request, response);
+                } else if ("/secure/admin".equals(request.getPath())) {
+                    handleSecureAdminRequest(request, response);
+                } else {
+                    response.send(404, "Not Found");
+                }
+                break;
+            case "POST":
+                if ("/submit".equals(request.getPath())) {
+                    handlePostSubmit(request, response);
+                } else if ("/register".equals(request.getPath())) {
+                    handleRegisterRequest(request, response);
+                } else if ("/login".equals(request.getPath())) {
+                    handleLoginRequest(request, response);
+                } else {
+                    response.send(404, "Not Found");
+                }
+                break;
+            case "PUT":
+                if ("/update".equals(request.getPath())) {
+                    handlePutUpdate(request, response);
+                } else {
+                    response.send(404, "Not Found");
+                }
+                break;
+            case "PATCH":
+                if ("/modify".equals(request.getPath())) {
+                    handlePatchModify(request, response);
+                } else {
+                    response.send(404, "Not Found");
+                }
+                break;
+            case "DELETE":
+                if ("/delete".equals(request.getPath())) {
+                    handleDelete(request, response);
+                } else {
+                    response.send(404, "Not Found");
+                }
+                break;
+            default:
+                response.send(404, "Not Found");
+        }
+    }
 
-        // Добавляем обработчик для проверки статуса 100 "Continue"
-        server.addHandler("POST", "/continue", this::handleContinueRequest);
 
-        // Добавляем обработчик для проверки статуса 502
-        server.addHandler("GET", "/external", this::handleExternalRequest);
+    private void handlePostSubmit(HttpRequest request, HttpResponse response) throws IOException {
+        if (!"application/json".equals(request.getHeaders().get("Content-Type"))) {
+            response.send(415, "Unsupported Media Type");
+            return;
+        }
 
-        // Добавляем обработчик для GET запроса на путь "/data" для вывода текущих данных
-        server.addHandler("GET", "/data", this::handleDataRequest);
-
-        // Добавляем обработчик для POST запроса на путь "/submit"
-        server.addHandler("POST", "/submit", (request, response) -> {
-            String requestBody = request.getBody();
+        String requestBody = request.getBody();
+        try {
             Map<String, String> newData = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
             if (newData != null && newData.containsKey("key") && newData.containsKey("value")) {
                 JsonObject jsonObject = JsonParser.parseString(newData.get("value")).getAsJsonObject();
                 dataStore.put(newData.get("key"), jsonObject);
+                if (flagForLongTimeout) {
+                    simulateLongOperation();
+                }
                 response.send(201, "New entry added: " + newData.get("key") + " = " + jsonObject.toString());
             } else {
                 response.send(400, "Invalid data format. Expected JSON with 'key' and 'value'.");
             }
-        });
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.send(400, "Invalid JSON format.");
+        }
+    }
 
-        server.addHandler("POST", "/expect", (request, response) -> {
-            String expectHeader = request.getHeaders().get("Expect");
-            if (expectHeader != null && expectHeader.equalsIgnoreCase("100-continue")) {
-                response.send(100, "Continue");
-            } else {
-                response.send(417, "Expectation Failed");
-            }
-        });
+    private void handlePutUpdate(HttpRequest request, HttpResponse response) throws IOException {
+        if (!"application/json".equals(request.getHeaders().get("Content-Type"))) {
+            response.send(415, "Unsupported Media Type");
+            return;
+        }
 
-        // Добавляем обработчик для PUT запроса на путь "/update"
-        server.addHandler("PUT", "/update", (request, response) -> {
-            String requestBody = request.getBody();
+        String requestBody = request.getBody();
+        try {
             Map<String, String> updatedData = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
             if (updatedData != null && updatedData.containsKey("key") && updatedData.containsKey("value")) {
                 if (dataStore.containsKey(updatedData.get("key"))) {
                     JsonObject jsonObject = JsonParser.parseString(updatedData.get("value")).getAsJsonObject();
                     dataStore.put(updatedData.get("key"), jsonObject);
+                    if (flagForLongTimeout) {
+                        simulateLongOperation();
+                    }
                     response.send(200, "Updated entry: " + updatedData.get("key") + " = " + jsonObject.toString());
                 } else {
                     response.send(404, "Data not found for key: " + updatedData.get("key"));
@@ -106,11 +223,20 @@ public class HttpRequestHandler {
             } else {
                 response.send(400, "Invalid data format. Expected JSON with 'key' and 'value'.");
             }
-        });
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.send(400, "Invalid JSON format.");
+        }
+    }
 
-        // Добавляем обработчик для PATCH запроса на путь "/modify"
-        server.addHandler("PATCH", "/modify", (request, response) -> {
-            String requestBody = request.getBody();
+    private void handlePatchModify(HttpRequest request, HttpResponse response) throws IOException {
+        if (!"application/json".equals(request.getHeaders().get("Content-Type"))) {
+            response.send(415, "Unsupported Media Type");
+            return;
+        }
+
+        String requestBody = request.getBody();
+        try {
             Map<String, String> modifiedData = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
             if (modifiedData != null && modifiedData.containsKey("key") && modifiedData.containsKey("value")) {
                 if (dataStore.containsKey(modifiedData.get("key"))) {
@@ -120,6 +246,9 @@ public class HttpRequestHandler {
                         existingObject.add(entry.getKey(), entry.getValue());
                     }
                     dataStore.put(modifiedData.get("key"), existingObject);
+                    if (flagForLongTimeout) {
+                        simulateLongOperation();
+                    }
                     response.send(200, "Modified entry: " + modifiedData.get("key") + " = " + existingObject.toString());
                 } else {
                     response.send(404, "Data not found for key: " + modifiedData.get("key"));
@@ -127,14 +256,21 @@ public class HttpRequestHandler {
             } else {
                 response.send(400, "Invalid data format. Expected JSON with 'key' and 'value'.");
             }
-        });
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.send(400, "Invalid JSON format.");
+        }
+    }
 
-        // Добавляем обработчик для DELETE запроса на путь "/delete"
-        server.addHandler("DELETE", "/delete", (request, response) -> {
-            String requestBody = request.getBody();
+    private void handleDelete(HttpRequest request, HttpResponse response) throws IOException {
+        String requestBody = request.getBody();
+        try {
             Map<String, String> deleteData = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
             if (deleteData != null && deleteData.containsKey("key")) {
                 if (dataStore.remove(deleteData.get("key")) != null) {
+                    if (flagForLongTimeout) {
+                        simulateLongOperation();
+                    }
                     response.send(200, "Deleted entry with key: " + deleteData.get("key"));
                 } else {
                     response.send(404, "Data not found for key: " + deleteData.get("key"));
@@ -142,153 +278,23 @@ public class HttpRequestHandler {
             } else {
                 response.send(400, "Invalid data format. Expected JSON with 'key'.");
             }
-        });
-
-        // Обработчик для POST запроса на путь "/upload" с поддержкой multipart/form-data
-        server.addHandler("POST", "/upload", (request, response) -> {
-            String contentType = request.getHeaders().get("Content-Type");
-            if (contentType != null && contentType.startsWith("multipart/form-data")) {
-                InputStream inputStream = new ByteArrayInputStream(request.getBody().getBytes());
-                MultipartParser parser = new MultipartParser(contentType, inputStream);
-                List<Map<String, String>> parts = null;
-                try {
-                    parts = parser.parse();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    response.send(500, "Internal Server Error: Unable to parse multipart data");
-                    return;
-                }
-
-                // Обработка частей multipart
-                for (Map<String, String> part : parts) {
-                    String disposition = part.get("Content-Disposition");
-                    String filename = null;
-                    if (disposition != null) {
-                        String[] elements = disposition.split(";");
-                        for (String element : elements) {
-                            System.out.println("Disposition element: " + element);
-                            if (element.trim().startsWith("filename=")) {
-                                filename = element.split("=")[1].replace("\"", "");
-                                System.out.println("Parsed filename: " + filename);
-                            }
-                        }
-                    }
-                    String fileContent = part.get("body");
-                    if (filename != null) {
-                        System.out.println("Received file: " + filename);
-                        System.out.println("File content: " + fileContent);
-                        // Сохранение файла
-                        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(UPLOAD_DIR, filename))) {
-                            writer.write(fileContent);
-                            System.out.println("File saved to: " + Paths.get(UPLOAD_DIR, filename).toAbsolutePath().toString());
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                            response.send(500, "Internal Server Error: Unable to save file");
-                            return;
-                        }
-                    } else {
-                        System.out.println("Filename is null");
-                    }
-                }
-
-                response.send(200, "File uploaded successfully.");
-            } else {
-                response.send(400, "Bad Request: Expected multipart/form-data");
-            }
-        });
-
-        // Добавляем обработчики для проверки различных статусов
-        server.addHandler("GET", "/status/200", (request, response) -> {
-            response.send(200, "OK");
-        });
-
-        server.addHandler("GET", "/status/201", (request, response) -> {
-            response.send(201, "Created");
-        });
-
-        server.addHandler("GET", "/status/400", (request, response) -> {
-            response.send(400, "Bad Request");
-        });
-
-        server.addHandler("GET", "/status/401", (request, response) -> {
-            response.send(401, "Unauthorized");
-        });
-
-        server.addHandler("GET", "/status/403", (request, response) -> {
-            response.send(403, "Forbidden");
-        });
-
-        server.addHandler("GET", "/status/404", (request, response) -> {
-            response.send(404, "Not Found");
-        });
-
-        server.addHandler("GET", "/status/500", (request, response) -> {
-            response.send(500, "Internal Server Error");
-        });
-
-        server.addHandler("GET", "/status/503", (request, response) -> {
-            response.send(503, "Service Unavailable");
-        });
-    }
-
-    private void handleDataRequest(HttpRequest request, HttpResponse response) throws IOException {
-        try {
-            if (isServiceUnavailable()) {
-                response.send(503, "Service Unavailable");
-                return;
-            }
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                if (delayEnabled) { //Проверяем флаг для проверки статуса 504
-                    // Если флаг установлен, выполняем длительную операцию по получению данных
-                    processDataRequest();
-                }
-            });
-
-            // Устанавливаем тайм-аут на 5 секунд для выполнения операции
-            future.get(5, TimeUnit.SECONDS);
-
-            // Если операция завершается успешно, отправляем данные
-            StringBuilder data = new StringBuilder();
-            dataStore.forEach((key, value) -> data.append(key).append(": ").append(value.toString()).append("\n"));
-            response.send(200, data.toString());
-        } catch (TimeoutException e) {
-            // Если операция занимает слишком много времени, возвращаем статус 504
-            response.send(504, "Gateway Time-out");
         } catch (Exception e) {
-            // Обрабатываем другие исключения и возвращаем статус 500
-            response.send(500, "Internal Server Error");
-        }
-    }
-
-    private boolean isServiceUnavailable() {
-        // Возвращает true, если сервис недоступен, иначе false
-        return !serviceAvailable;
-    }
-
-    // Метод для установки доступности сервиса
-    public void setServiceAvailable(boolean available) {
-        this.serviceAvailable = available;
-    }
-
-    private void processDataRequest() {
-        // Симулируем длительную операцию
-        try {
-            Thread.sleep(10000); // Задержка в 10 секунд
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            e.printStackTrace();
+            response.send(400, "Invalid JSON format.");
         }
     }
 
     private void handleExternalRequest(HttpRequest request, HttpResponse response) throws IOException {
+        HttpURLConnection conn = null;
         try {
-            if (isExternalServiceUnavailable()) {
-                response.send(502, "Bad Gateway");
-                return;
+            URL url;
+            if(flagForExternalServiceAvailable) {
+                url = new URL("https://jsonplaceholder.typicode.com/posts/1");
+            } else {
+                url = new URL("https://jsonplaceholder.typicode.com/post/1");
             }
 
-            // Пример обращения к внешнему API
-            URL url = new URL("https://jsonplaceholder.typicode.com/posts/1");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             int responseCode = conn.getResponseCode();
 
@@ -299,27 +305,97 @@ public class HttpRequestHandler {
                 while ((inputLine = in.readLine()) != null) {
                     content.append(inputLine);
                 }
-                // Закрываем потоки
                 in.close();
-                conn.disconnect();
                 response.send(200, content.toString());
             } else {
                 response.send(502, "Bad Gateway");
             }
         } catch (Exception e) {
             response.send(502, "Bad Gateway");
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
     }
 
+    private void handleSecureRequest(HttpRequest request, HttpResponse response) throws IOException {
+        String token = request.getHeaders().get("Authorization");
 
-    private boolean isExternalServiceUnavailable() {
-        // Возвращает true, если внешний сервис недоступен, иначе false
-        return !externalServiceAvailable;
+        if (token == null || !AuthService.isAuthenticated(token)) {
+            response.send(401, "Unauthorized");
+            return;
+        }
+
+        if (!AuthService.isAuthorized(token)) {
+            response.send(403, "Forbidden");
+            return;
+        }
+
+        response.send(200, "You have access to secure data!");
     }
 
-    // Метод для установки доступности внешнего сервиса
-    public void setExternalServiceAvailable(boolean available) {
-        this.externalServiceAvailable = available;
+    private void handleSecureAdminRequest(HttpRequest request, HttpResponse response) throws IOException {
+        String token = request.getHeaders().get("Authorization");
+
+        if (token == null || !AuthService.isAuthenticated(token)) {
+            response.send(401, "Unauthorized");
+            return;
+        }
+
+        if (!AuthService.isAdmin(token)) {
+            response.send(403, "Forbidden");
+            return;
+        }
+
+        response.send(200, "You have access to admin data!");
+    }
+
+    private void handleSecureUserRequest(HttpRequest request, HttpResponse response) throws IOException {
+        String token = request.getHeaders().get("Authorization");
+
+        if (token == null || !AuthService.isAuthenticated(token)) {
+            response.send(401, "Unauthorized");
+            return;
+        }
+
+        response.send(200, "You have access to user data!");
+    }
+
+    private void handleRegisterRequest(HttpRequest request, HttpResponse response) throws IOException {
+        String requestBody = request.getBody();
+        Map<String, String> credentials = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
+
+        String username = credentials.get("username");
+        String password = credentials.get("password");
+
+        if ("admin".equals(username) && "admin".equals(password)) {
+            String token = UUID.randomUUID().toString();
+            AuthService.registerToken(token, true);
+            response.send(200, "Registration successful. Token: " + token);
+        } else {
+            response.send(200, "Registration successful for user: " + username);
+        }
+    }
+
+    private void handleLoginRequest(HttpRequest request, HttpResponse response) throws IOException {
+        String requestBody = request.getBody();
+        Map<String, String> credentials = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
+
+        String username = credentials.get("username");
+        String password = credentials.get("password");
+
+        if ("admin".equals(username) && "admin".equals(password)) {
+            String token = UUID.randomUUID().toString();
+            AuthService.registerToken(token, true);
+            response.send(200, "Login successful. Token: " + token);
+        } else if ("user1".equals(username) && "password1".equals(password)) {
+            String token = UUID.randomUUID().toString();
+            AuthService.registerToken(token, false);
+            response.send(200, "Login successful. Token: " + token);
+        } else {
+            response.send(401, "Invalid credentials");
+        }
     }
 
     private void handleContinueRequest(HttpRequest request, HttpResponse response) throws IOException {
@@ -333,10 +409,31 @@ public class HttpRequestHandler {
             String requestBody = readRequestBody(request.getClientChannel());
             System.out.println("Request Body: " + requestBody);
 
-            // Обработка тела запроса
-            response.send(200, "Received data: " + requestBody);
+            // Обработка тела запроса в отдельном потоке
+            executorService.submit(() -> {
+                try {
+                    // Добавить задержку в 5 секунд после получения тела запроса
+                    Thread.sleep(5000);
+
+                    // Обработка тела запроса и отправка окончательного ответа
+                    response.send(200, "Received data: " + requestBody);
+                    System.out.println("Sent final response: Received data: " + requestBody);
+
+                    // Закрытие канала после отправки окончательного ответа
+                    request.getClientChannel().close();
+                    System.out.println("Client channel closed after sending final response");
+                } catch (InterruptedException | IOException e) {
+                    e.printStackTrace();
+                    try {
+                        response.send(500, "Internal Server Error");
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+            });
         } else {
             response.send(417, "Expectation Failed");
+            System.out.println("Expectation Failed");
         }
     }
 
@@ -371,6 +468,16 @@ public class HttpRequestHandler {
                 reading = false; // нет больше данных, выходим из цикла
             }
         }
+        selector.close(); // Закрываем селектор после чтения данных
         return requestBody.toString();
+    }
+
+
+    private void simulateLongOperation() {
+        try {
+            Thread.sleep(11000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

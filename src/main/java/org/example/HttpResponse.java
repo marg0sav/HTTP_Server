@@ -8,6 +8,7 @@ import java.util.Map;
 
 public class HttpResponse {
     private final SocketChannel clientChannel;
+    private boolean sent = false;
 
     public HttpResponse(SocketChannel clientChannel) {
         this.clientChannel = clientChannel;
@@ -18,6 +19,9 @@ public class HttpResponse {
     }
 
     public void send(int statusCode, String body, String contentType) throws IOException {
+        if (sent) {
+            return; // Если ответ уже был отправлен, ничего не делать
+        }
         String statusMessage = getStatusMessage(statusCode);
         String responseBody = (statusCode == 100) ? "" : statusCode + ": " + statusMessage + "\r\n" + body;
         String response = "HTTP/1.1 " + statusCode + " " + statusMessage + "\r\n" +
@@ -30,16 +34,25 @@ public class HttpResponse {
 
         // Закрываем канал только если статус не 100 "Continue"
         if (statusCode != 100) {
+            sent = true;
             clientChannel.close();
+            System.out.println("Client channel closed after sending response: " + statusCode);
         }
     }
 
     public void sendContinue() throws IOException {
+        if (sent) {
+            return; // Если ответ уже был отправлен, ничего не делать
+        }
         String response = "HTTP/1.1 100 Continue\r\n\r\n";
         ByteBuffer buffer = ByteBuffer.wrap(response.getBytes());
         clientChannel.write(buffer);
+        System.out.println("Sent 100 Continue");
     }
 
+    public boolean isSent() {
+        return sent;
+    }
 
     private String getStatusMessage(int statusCode) {
         Map<Integer, String> statusMessages = new HashMap<>();
