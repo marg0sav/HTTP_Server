@@ -19,6 +19,11 @@ public class ServerApp {
             // несуществующему API)
             handler.setExternalServiceAvailable(true);
 
+            // Добавляем shutdown hook
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("Server closed. Goodbye!");
+            }));
+
             server.start();
         } catch (IOException e) {
             e.printStackTrace();

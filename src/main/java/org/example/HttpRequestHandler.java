@@ -58,7 +58,7 @@ public class HttpRequestHandler {
         server.addHandler("POST", "/register", this::handleRegisterRequest);
         server.addHandler("POST", "/login", this::handleLoginRequest);
         server.addHandler("POST", "/continue", this::handleContinueRequest); // Добавить обработчик для проверки статуса 100 "Continue"
-
+        server.addHandler("GET", "/redirect", this::handleRedirect);
     }
 
     private void handleRequestWithTimeout(HttpRequest request, HttpResponse response) {
@@ -471,6 +471,21 @@ public class HttpRequestHandler {
         selector.close(); // Закрываем селектор после чтения данных
         return requestBody.toString();
     }
+
+    private void handleRedirect(HttpRequest request, HttpResponse response) throws IOException {
+        String location = "http://example.com";
+        String responseBody = "Found: " + location;
+        String responseHeaders = "HTTP/1.1 302 Found\r\n" +
+                "Location: " + location + "\r\n" +
+                "Content-Length: " + responseBody.length() + "\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "\r\n" +
+                responseBody;
+        ByteBuffer buffer = ByteBuffer.wrap(responseHeaders.getBytes());
+        request.getClientChannel().write(buffer);
+        request.getClientChannel().close();
+    }
+
 
 
     private void simulateLongOperation() {
