@@ -1,9 +1,12 @@
-package org.example;
+package org.example.http;
 
 import java.nio.channels.SocketChannel;
-import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * The HttpRequest class represents an HTTP request.
+ * It contains the HTTP method, the request path, headers, body, and the client channel.
+ */
 public class HttpRequest {
     private final String method;
     private final String path;
@@ -11,6 +14,15 @@ public class HttpRequest {
     private final String body;
     private final SocketChannel clientChannel;
 
+    /**
+     * Constructs an HttpRequest with the specified method, path, headers, body, and client channel.
+     *
+     * @param method        the HTTP method (e.g., GET, POST, PUT, DELETE)
+     * @param path          the request path
+     * @param headers       the request headers
+     * @param body          the request body
+     * @param clientChannel the client channel
+     */
     public HttpRequest(String method, String path, Map<String, String> headers, String body, SocketChannel clientChannel) {
         this.method = method;
         this.path = path;
@@ -39,21 +51,4 @@ public class HttpRequest {
         return clientChannel;
     }
 
-    public Map<String, String> getQueryParams() {
-        return parseParams(path.contains("?") ? path.split("\\?")[1] : "");
-    }
-
-    private Map<String, String> parseParams(String paramString) {
-        Map<String, String> params = new HashMap<>();
-        if (!paramString.isEmpty()) {
-            String[] pairs = paramString.split("&");
-            for (String pair : pairs) {
-                String[] keyValue = pair.split("=");
-                if (keyValue.length == 2) {
-                    params.put(keyValue[0], keyValue[1]);
-                }
-            }
-        }
-        return params;
-    }
 }

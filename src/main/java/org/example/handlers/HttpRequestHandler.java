@@ -1,10 +1,14 @@
-package org.example;
+package org.example.handlers;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import org.example.auth.AuthService;
+import org.example.http.HttpRequest;
+import org.example.http.HttpResponse;
+import org.example.server.HttpServer;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -18,6 +22,13 @@ import java.nio.channels.SocketChannel;
 import java.util.*;
 import java.util.concurrent.*;
 
+/**
+ * HttpRequestHandler is responsible for handling various types of HTTP requests,
+ * processing them, and generating appropriate responses. This class supports GET,
+ * POST, PUT, PATCH, DELETE, and other HTTP methods. Short delays (5 seconds) are
+ * used to check the simultaneous operation of several clients.
+ */
+
 public class HttpRequestHandler {
     private static final Map<String, JsonObject> dataStore = new ConcurrentHashMap<>();
     private final Gson gson = new Gson();
@@ -26,6 +37,9 @@ public class HttpRequestHandler {
     private static boolean flagForServiceAvailable = true;
     private static boolean flagForExternalServiceAvailable = true;
 
+    /**
+     * Constructor initializes the HttpRequestHandler with some example data.
+     */
     public HttpRequestHandler() {
         JsonObject exampleData = new JsonObject();
         exampleData.addProperty("field1", "value1");
@@ -33,18 +47,42 @@ public class HttpRequestHandler {
         dataStore.put("example", exampleData);
     }
 
+    /**
+     * Sets a flag to simulate long-running operations. During installation,
+     * all basic operations (GET, POST, PUT, PATCH, DELETE) will be performed
+     * with a delay of 11 seconds. It is set in the ServerApp class, if there
+     * was no set point in this class, then the default value is used (false).
+     * @param flag true to simulate long operations, false otherwise
+     */
     public static void setFlagForLongTimeout(boolean flag) {
         flagForLongTimeout = flag;
     }
 
-    public void setServiceAvailable(boolean available) {
+    /**
+     * Sets the availability status of the service. The current server becomes unavailable.
+     * It is set in the ServerApp class, if there was no set point in this class, then the
+     * default value is used (true).
+     * @param available true if the service is available, false otherwise
+     */
+    public static void setServiceAvailable(boolean available) {
         flagForServiceAvailable = available;
     }
 
-    public void setExternalServiceAvailable(boolean available) {
+    /**
+     * Sets the availability status of the external service. The installation function
+     * uses two predefined external APIs, one existing for verification and the other not.
+     * It is set in the ServerApp class, if there was no set point in this class, then the
+     * default value is used (true).
+     * @param available true if the external service is available, false otherwise
+     */
+    public static void setExternalServiceAvailable(boolean available) {
         flagForExternalServiceAvailable = available;
     }
 
+    /**
+     * Registers the various handlers for different HTTP methods and paths.
+     * @param server the HttpServer to register handlers with
+     */
     public void registerHandlers(HttpServer server) {
         server.addHandler("GET", "/", this::handleRequestWithTimeout);
         server.addHandler("GET", "/data", this::handleRequestWithTimeout);
@@ -52,15 +90,21 @@ public class HttpRequestHandler {
         server.addHandler("PUT", "/update", this::handleRequestWithTimeout);
         server.addHandler("PATCH", "/modify", this::handleRequestWithTimeout);
         server.addHandler("DELETE", "/delete", this::handleRequestWithTimeout);
-        server.addHandler("GET", "/external", this::handleRequestWithTimeout);
+        server.addHandler("GET", "/external", this::handleExternalRequest);
         server.addHandler("GET", "/secure/admin", this::handleSecureAdminRequest);
         server.addHandler("GET", "/secure/user", this::handleSecureUserRequest);
         server.addHandler("POST", "/register", this::handleRegisterRequest);
         server.addHandler("POST", "/login", this::handleLoginRequest);
-        server.addHandler("POST", "/continue", this::handleContinueRequest); // Добавить обработчик для проверки статуса 100 "Continue"
+        server.addHandler("POST", "/continue", this::handleContinueRequest);
         server.addHandler("GET", "/redirect", this::handleRedirect);
     }
 
+    /**
+     * Handles requests with a timeout. And if the service is unavailable or the request
+     * body is too large, it sends appropriate responses.
+     * @param request the HTTP request
+     * @param response the HTTP response
+     */
     private void handleRequestWithTimeout(HttpRequest request, HttpResponse response) {
         if (!flagForServiceAvailable) {
             try {
@@ -116,6 +160,12 @@ public class HttpRequestHandler {
         }
     }
 
+    /**
+     * Handles various types of HTTP requests and generates appropriate responses.
+     * @param request the HTTP request
+     * @param response the HTTP response
+     * @throws IOException if an I/O error occurs
+     */
     private void handleRequest(HttpRequest request, HttpResponse response) throws IOException {
         switch (request.getMethod()) {
             case "GET":
@@ -284,6 +334,9 @@ public class HttpRequestHandler {
         }
     }
 
+    /**
+     * Handles external requests by connecting to an external service and forwarding the response.
+     */
     private void handleExternalRequest(HttpRequest request, HttpResponse response) throws IOException {
         HttpURLConnection conn = null;
         try {
@@ -319,22 +372,9 @@ public class HttpRequestHandler {
         }
     }
 
-    private void handleSecureRequest(HttpRequest request, HttpResponse response) throws IOException {
-        String token = request.getHeaders().get("Authorization");
-
-        if (token == null || !AuthService.isAuthenticated(token)) {
-            response.send(401, "Unauthorized");
-            return;
-        }
-
-        if (!AuthService.isAuthorized(token)) {
-            response.send(403, "Forbidden");
-            return;
-        }
-
-        response.send(200, "You have access to secure data!");
-    }
-
+    /**
+     * Handles requests for secure admin data by verifying authorization.
+     */
     private void handleSecureAdminRequest(HttpRequest request, HttpResponse response) throws IOException {
         String token = request.getHeaders().get("Authorization");
 
@@ -351,6 +391,9 @@ public class HttpRequestHandler {
         response.send(200, "You have access to admin data!");
     }
 
+    /**
+     * Handles requests for secure user data by verifying authorization.
+     */
     private void handleSecureUserRequest(HttpRequest request, HttpResponse response) throws IOException {
         String token = request.getHeaders().get("Authorization");
 
@@ -362,6 +405,9 @@ public class HttpRequestHandler {
         response.send(200, "You have access to user data!");
     }
 
+    /**
+     * Handles registration requests by creating new user tokens.
+     */
     private void handleRegisterRequest(HttpRequest request, HttpResponse response) throws IOException {
         String requestBody = request.getBody();
         Map<String, String> credentials = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
@@ -378,6 +424,9 @@ public class HttpRequestHandler {
         }
     }
 
+    /**
+     * Handles login requests by verifying credentials and generating tokens.
+     */
     private void handleLoginRequest(HttpRequest request, HttpResponse response) throws IOException {
         String requestBody = request.getBody();
         Map<String, String> credentials = gson.fromJson(requestBody, new TypeToken<Map<String, String>>(){}.getType());
@@ -398,28 +447,31 @@ public class HttpRequestHandler {
         }
     }
 
+    /**
+     * Handles requests with "Expect: 100-continue" header.
+     */
     private void handleContinueRequest(HttpRequest request, HttpResponse response) throws IOException {
         String expectHeader = request.getHeaders().get("Expect");
         if (expectHeader != null && expectHeader.equalsIgnoreCase("100-continue")) {
-            // Отправляем статус 100 "Continue"
+            // Send 100 "Continue" status
             response.sendContinue();
             System.out.println("Sent 100 Continue");
 
-            // Чтение тела запроса после отправки 100 "Continue"
+            // Read the request body after sending 100 "Continue"
             String requestBody = readRequestBody(request.getClientChannel());
             System.out.println("Request Body: " + requestBody);
 
-            // Обработка тела запроса в отдельном потоке
+            // Process the request body in a separate thread
             executorService.submit(() -> {
                 try {
-                    // Добавить задержку в 5 секунд после получения тела запроса
+                    // Add a 5-second delay after receiving the request body
                     Thread.sleep(5000);
 
-                    // Обработка тела запроса и отправка окончательного ответа
+                    // Process the request body and send the final response
                     response.send(200, "Received data: " + requestBody);
                     System.out.println("Sent final response: Received data: " + requestBody);
 
-                    // Закрытие канала после отправки окончательного ответа
+                    // Close the channel after sending the final response
                     request.getClientChannel().close();
                     System.out.println("Client channel closed after sending final response");
                 } catch (InterruptedException | IOException e) {
@@ -437,6 +489,12 @@ public class HttpRequestHandler {
         }
     }
 
+    /**
+     * Reads the request body from the client channel.
+     * @param clientChannel the client channel
+     * @return the request body as a string
+     * @throws IOException if an I/O error occurs
+     */
     private String readRequestBody(SocketChannel clientChannel) throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(1024);
         StringBuilder requestBody = new StringBuilder();
@@ -445,7 +503,7 @@ public class HttpRequestHandler {
 
         boolean reading = true;
         while (reading) {
-            selector.select(500);  // тайм-аут 500 мс для избежания бесконечного ожидания
+            selector.select(500);
             Set<SelectionKey> selectedKeys = selector.selectedKeys();
             Iterator<SelectionKey> iterator = selectedKeys.iterator();
             while (iterator.hasNext()) {
@@ -460,18 +518,21 @@ public class HttpRequestHandler {
                         requestBody.append(new String(bytes));
                         buffer.clear();
                     } else if (bytesRead == -1) {
-                        reading = false; // конец потока, выходим из цикла
+                        reading = false; // End of the stream, exit the loop
                     }
                 }
             }
             if (selectedKeys.isEmpty()) {
-                reading = false; // нет больше данных, выходим из цикла
+                reading = false; // There is no more data, exiting the loop
             }
         }
-        selector.close(); // Закрываем селектор после чтения данных
+        selector.close(); // Closing the selector after reading the data
         return requestBody.toString();
     }
 
+    /**
+     * Handles redirect requests by sending a 302 Found response.
+     */
     private void handleRedirect(HttpRequest request, HttpResponse response) throws IOException {
         String location = "http://example.com";
         String responseBody = "Found: " + location;
@@ -486,8 +547,10 @@ public class HttpRequestHandler {
         request.getClientChannel().close();
     }
 
-
-
+    /**
+     * Simulates a long operation by sleeping for 11 seconds.
+     * This function was used to check the 504 status for different methods.
+     */
     private void simulateLongOperation() {
         try {
             Thread.sleep(11000);

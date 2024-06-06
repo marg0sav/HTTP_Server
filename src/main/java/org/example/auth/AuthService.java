@@ -1,13 +1,18 @@
-package org.example;
+package org.example.auth;
 
 import java.util.HashSet;
 import java.util.Set;
+
+/**
+ * AuthService is a simple authentication and authorization service.
+ * It manages authentication tokens and checks authorization levels.
+ */
 
 public class AuthService {
     private static final Set<String> authenticatedTokens = new HashSet<>();
     private static final Set<String> authorizedTokens = new HashSet<>();
 
-    // Добавляем метод для регистрации токенов
+    // Adding a method for registering tokens
     public static void registerToken(String token, boolean isAdmin) {
         authenticatedTokens.add(token);
         if (isAdmin) {

@@ -1,4 +1,8 @@
-package org.example;
+package org.example.server;
+
+import org.example.handlers.HttpHandler;
+import org.example.http.HttpRequest;
+import org.example.http.HttpResponse;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -6,12 +10,17 @@ import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.util.*;
 
+/**
+ * The HttpServerChannel class represents a server channel that listens for incoming HTTP connections,
+ * processes HTTP requests, and sends responses. It utilizes Java NIO for non-blocking I/O operations.
+ */
 public class HttpServerChannel {
     private final String host;
     private final int port;
     private final Selector selector;
     private final ServerSocketChannel serverChannel;
     private final Map<String, Map<String, HttpHandler>> handlers;
+    private volatile boolean running = true;
 
     public HttpServerChannel(String host, int port, Map<String, Map<String, HttpHandler>> handlers) throws IOException {
         this.host = host;
@@ -27,7 +36,7 @@ public class HttpServerChannel {
     public void start() throws IOException {
         System.out.println("Server started on " + host + ":" + port);
 
-        while (true) {
+        while (running) {
             selector.select();
             Set<SelectionKey> keys = selector.selectedKeys();
             Iterator<SelectionKey> iterator = keys.iterator();
@@ -128,5 +137,13 @@ public class HttpServerChannel {
     private void sendResponse(SocketChannel clientChannel, int statusCode, String message) throws IOException {
         HttpResponse httpResponse = new HttpResponse(clientChannel);
         httpResponse.send(statusCode, message);
+    }
+
+    public void stop() throws IOException {
+        running = false;
+        selector.wakeup();  // To unblock the selector.select() call
+        if (serverChannel != null) {
+            serverChannel.close();
+        }
     }
 }

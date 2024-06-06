@@ -1,4 +1,4 @@
-package org.example;
+package org.example.http;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -20,7 +20,7 @@ public class HttpResponse {
 
     public void send(int statusCode, String body, String contentType) throws IOException {
         if (sent) {
-            return; // Если ответ уже был отправлен, ничего не делать
+            return;
         }
         String statusMessage = getStatusMessage(statusCode);
         String responseBody = (statusCode == 100) ? "" : statusCode + ": " + statusMessage + "\r\n" + body;
@@ -32,7 +32,6 @@ public class HttpResponse {
         ByteBuffer buffer = ByteBuffer.wrap(response.getBytes());
         clientChannel.write(buffer);
 
-        // Закрываем канал только если статус не 100 "Continue"
         if (statusCode != 100) {
             sent = true;
             clientChannel.close();
@@ -42,7 +41,7 @@ public class HttpResponse {
 
     public void sendContinue() throws IOException {
         if (sent) {
-            return; // Если ответ уже был отправлен, ничего не делать
+            return;
         }
         String response = "HTTP/1.1 100 Continue\r\n\r\n";
         ByteBuffer buffer = ByteBuffer.wrap(response.getBytes());

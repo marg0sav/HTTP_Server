@@ -1,5 +1,8 @@
 package org.example;
 
+import org.example.handlers.HttpRequestHandler;
+import org.example.server.HttpServer;
+
 import java.io.IOException;
 
 public class ServerApp {
@@ -9,17 +12,17 @@ public class ServerApp {
             HttpRequestHandler handler = new HttpRequestHandler();
             handler.registerHandlers(server);
 
-            // Устанавливаем флаг для симуляции длительных операций
-            HttpRequestHandler.setFlagForLongTimeout(false);
+            // Setting a flag to simulate long-term operations
+            HttpRequestHandler.setFlagForLongTimeout(true);
 
-            // Устанавливаем доступность сервера
+            // Setting the availability of the server
             handler.setServiceAvailable(true);
 
-            // Устанавливаем доступность внешнего сервера (при false, происходит подключение к
-            // несуществующему API)
+            // Setting the availability of the external server (if false, the connection
+            // to a non-existent API)
             handler.setExternalServiceAvailable(true);
 
-            // Добавляем shutdown hook
+            // Adding shutdownhook
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("Server closed. Goodbye!");
             }));
